@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark" />
     <title>Scriptify — YouTube Narrative Studio</title>
     <meta name="description" content="Susun naskah YouTube long-form dan prompt visual per scene." />
-    <link rel="stylesheet" href="/styles.css?v=3" />
+    <link rel="stylesheet" href="/styles.css?v=4" />
   </head>
   <body>
     <div class="app-shell">
@@ -92,6 +92,29 @@
               </div>
             </fieldset>
 
+            <section class="reference-card" aria-labelledby="referenceTitle">
+              <div class="reference-copy">
+                <span class="reference-eyebrow">Opsional</span>
+                <h3 id="referenceTitle">Referensi karakter</h3>
+                <p>Model vision membaca ciri karakter dan mengulang identity anchor pada prompt visual agar tampilannya tetap konsisten.</p>
+                <p class="vision-status" id="visionStatus">Memeriksa VISION_OPENAI_MODEL…</p>
+              </div>
+              <div class="reference-control">
+                <label class="upload-button" for="referenceImage">
+                  <input id="referenceImage" name="referenceImage" type="file" accept="image/jpeg,image/png,image/webp" />
+                  <span>Pilih gambar</span>
+                </label>
+                <div class="reference-preview" id="referencePreview" hidden>
+                  <img id="referencePreviewImage" alt="Pratinjau gambar referensi karakter" />
+                  <div>
+                    <strong id="referenceFileName"></strong>
+                    <span id="referenceFileSize"></span>
+                    <button id="removeReference" type="button">Hapus</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
             <details class="advanced">
               <summary>Arahan tambahan</summary>
               <label class="field">
@@ -127,6 +150,6 @@
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=3"></script>
+    <script type="module" src="/app.js?v=4"></script>
   </body>
 </html>

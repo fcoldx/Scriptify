@@ -4,6 +4,8 @@ const state = {
   result: null,
   configReady: false,
   model: "",
+  visionModel: "",
+  referencePreviewUrl: "",
 };
 
 const elements = {
@@ -18,7 +20,17 @@ const elements = {
   duration: $("#durationMinutes"),
   estimate: $("#estimate"),
   toast: $("#toast"),
+  referenceImage: $("#referenceImage"),
+  referencePreview: $("#referencePreview"),
+  referencePreviewImage: $("#referencePreviewImage"),
+  referenceFileName: $("#referenceFileName"),
+  referenceFileSize: $("#referenceFileSize"),
+  removeReference: $("#removeReference"),
+  visionStatus: $("#visionStatus"),
 };
+
+const allowedReferenceTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+const maxReferenceBytes = 5_000_000;
 
 async function loadServerConfig() {
   try {
@@ -27,10 +39,17 @@ async function loadServerConfig() {
     const config = await response.json();
     state.configReady = Boolean(config.baseUrl && config.model && config.hasApiKey);
     state.model = config.model || "";
+    state.visionModel = config.visionModel || "";
     elements.connectionLabel.textContent = state.configReady ? `Cek koneksi · ${state.model}` : "Cek konfigurasi .env";
+    elements.visionStatus.textContent = state.visionModel
+      ? `Vision terkonfigurasi · ${state.visionModel}`
+      : "Tambahkan VISION_OPENAI_MODEL di .env untuk memakai gambar.";
+    elements.visionStatus.classList.toggle("ready", Boolean(state.visionModel));
   } catch {
     state.configReady = false;
+    state.visionModel = "";
     elements.connectionLabel.textContent = "Cek konfigurasi .env";
+    elements.visionStatus.textContent = "Konfigurasi vision belum dapat dibaca.";
   }
 }
 
@@ -72,6 +91,49 @@ elements.topic.addEventListener("input", () => {
 });
 elements.duration.addEventListener("change", updateEstimate);
 
+function clearReferenceImage() {
+  elements.referenceImage.value = "";
+  elements.referencePreview.hidden = true;
+  elements.referencePreviewImage.removeAttribute("src");
+  elements.referenceFileName.textContent = "";
+  elements.referenceFileSize.textContent = "";
+  if (state.referencePreviewUrl) URL.revokeObjectURL(state.referencePreviewUrl);
+  state.referencePreviewUrl = "";
+}
+
+elements.referenceImage.addEventListener("change", () => {
+  const file = elements.referenceImage.files?.[0];
+  if (!file) return clearReferenceImage();
+  if (!allowedReferenceTypes.has(file.type)) {
+    clearReferenceImage();
+    showToast("Gunakan gambar JPEG, PNG, atau WebP.");
+    return;
+  }
+  if (file.size > maxReferenceBytes) {
+    clearReferenceImage();
+    showToast("Ukuran gambar maksimal 5 MB.");
+    return;
+  }
+
+  if (state.referencePreviewUrl) URL.revokeObjectURL(state.referencePreviewUrl);
+  state.referencePreviewUrl = URL.createObjectURL(file);
+  elements.referencePreviewImage.src = state.referencePreviewUrl;
+  elements.referenceFileName.textContent = file.name;
+  elements.referenceFileSize.textContent = `${(file.size / 1_000_000).toFixed(2)} MB`;
+  elements.referencePreview.hidden = false;
+});
+
+elements.removeReference.addEventListener("click", clearReferenceImage);
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Gambar referensi tidak dapat dibaca oleh browser."));
+    reader.readAsDataURL(file);
+  });
+}
+
 elements.generatorForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!state.configReady) {
@@ -81,7 +143,23 @@ elements.generatorForm.addEventListener("submit", async (event) => {
 
   const data = new FormData(elements.generatorForm);
   const input = Object.fromEntries(data.entries());
+  const referenceFile = elements.referenceImage.files?.[0];
+  delete input.referenceImage;
   input.durationMinutes = Number(input.durationMinutes);
+
+  if (referenceFile && !state.visionModel) {
+    renderError("Gambar referensi memerlukan VISION_OPENAI_MODEL di file .env lalu restart server.");
+    return;
+  }
+
+  if (referenceFile) {
+    try {
+      input.referenceImageDataUrl = await readFileAsDataUrl(referenceFile);
+    } catch (error) {
+      renderError(error.message);
+      return;
+    }
+  }
 
   setGenerating(true);
   renderLoading();
@@ -157,11 +235,17 @@ function renderResult(response) {
   scenes.className = "scenes";
   result.scenes.forEach((scene) => scenes.append(createScene(scene, visualType)));
 
+  const characterProfile = meta.characterProfile
+    ? createDefinition("Character identity anchor", meta.characterProfile, "identity-anchor")
+    : null;
+
   const footer = document.createElement("p");
   footer.className = "result-meta";
   footer.style.marginTop = "18px";
-  footer.textContent = `${meta.model} · ${meta.formatMode}${meta.segmentCount > 1 ? ` · ${meta.segmentCount} BAGIAN` : ""}`;
-  elements.resultArea.append(head, scenes, footer);
+  footer.textContent = `${meta.model} · ${meta.formatMode}${meta.segmentCount > 1 ? ` · ${meta.segmentCount} BAGIAN` : ""}${meta.visionModel ? ` · VISION ${meta.visionModel}` : ""}`;
+  elements.resultArea.append(head);
+  if (characterProfile) elements.resultArea.append(characterProfile);
+  elements.resultArea.append(scenes, footer);
 }
 
 function createScene(scene, visualType) {

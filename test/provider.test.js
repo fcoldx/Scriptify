@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AppError, ProviderError, buildMessages, chatCompletionsUrl, extractContent, isRetryableFormatError, mergePackages, normalizePackage, parseJsonContent, planSegments, requestCompletion, splitDuration } from "../lib/provider.js";
+import { AppError, ProviderError, buildMessages, buildVisionMessages, chatCompletionsUrl, extractContent, isRetryableFormatError, mergePackages, normalizePackage, parseJsonContent, planSegments, requestCompletion, splitDuration, validateReferenceImage } from "../lib/provider.js";
 
 test("menormalkan base URL menjadi endpoint chat completions", () => {
   assert.equal(chatCompletionsUrl("https://api.example.com/v1"), "https://api.example.com/v1/chat/completions");
@@ -45,6 +45,20 @@ test("mendeteksi respons yang terpotong", () => {
   );
 });
 
+test("memvalidasi gambar referensi dan membangun pesan vision", () => {
+  const image = "data:image/png;base64,iVBORw0KGgo=";
+  assert.equal(validateReferenceImage(image), image);
+  assert.equal(validateReferenceImage(""), null);
+  assert.throws(
+    () => validateReferenceImage("data:image/svg+xml;base64,PHN2Zz4="),
+    (error) => error instanceof AppError && error.code === "INVALID_REFERENCE_IMAGE",
+  );
+
+  const messages = buildVisionMessages(image);
+  assert.equal(messages[1].content[1].type, "image_url");
+  assert.equal(messages[1].content[1].image_url.url, image);
+});
+
 test("mengizinkan fallback ketika format model tidak valid", () => {
   const error = new AppError("bad json", 502, "INVALID_MODEL_JSON");
   assert.equal(isRetryableFormatError(error), true);
@@ -83,6 +97,24 @@ test("mempertahankan posisi alur ketika satu bagian dipecah adaptif", () => {
   });
   assert.match(messages[0].content, /bagian pembuka/i);
   assert.match(messages[1].content, /1 dari 1 · A/);
+});
+
+test("menyertakan identity anchor dalam arahan prompt visual", () => {
+  const input = {
+    topic: "Petualangan karakter",
+    durationMinutes: 3,
+    contentType: "Dokumenter",
+    audience: "Umum",
+    tone: "Sinematik",
+    visualType: "image",
+    language: "Bahasa Indonesia",
+    notes: "",
+    characterProfile: "A young woman with a round face, short black bob hair, amber eyes, and a rust-orange jacket.",
+  };
+  const messages = buildMessages(input);
+  assert.match(messages[0].content, /tidak boleh mengubah wajah/i);
+  assert.match(messages[1].content, /CHARACTER IDENTITY ANCHOR/);
+  assert.match(messages[1].content, /rust-orange jacket/);
 });
 
 test("menggabungkan paket dan menomori ulang scene", () => {

@@ -7,6 +7,7 @@ import {
   ProviderError,
   SCRIPT_SCHEMA,
   buildMessages,
+  buildVisionMessages,
   extractContent,
   isRetryableFormatError,
   mergePackages,
@@ -15,12 +16,14 @@ import {
   planSegments,
   requestCompletion,
   splitDuration,
+  validateReferenceImage,
 } from "./lib/provider.js";
 
 const root = fileURLToPath(new URL("./public/", import.meta.url));
 const port = Number(process.env.PORT || 3000);
 const providerTimeoutMs = boundedNumber(process.env.OPENAI_TIMEOUT_MS, 600000, 5000, 1800000);
 const providerMaxTokens = boundedNumber(process.env.OPENAI_MAX_TOKENS, 12000, 256, 50000);
+const maxRequestBytes = 8_000_000;
 const buckets = new Map();
 
 const types = {
@@ -34,7 +37,7 @@ const types = {
 function securityHeaders(extra = {}) {
   return {
     "Cache-Control": "no-store",
-    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
@@ -52,7 +55,7 @@ async function readJson(req) {
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 1_000_000) throw new AppError("Request terlalu besar.", 413, "PAYLOAD_TOO_LARGE");
+    if (size > maxRequestBytes) throw new AppError("Request terlalu besar.", 413, "PAYLOAD_TOO_LARGE");
     chunks.push(chunk);
   }
   try {
@@ -107,6 +110,7 @@ function validateGenerateInput(input) {
     visualType: input.visualType === "video" ? "video" : "image",
     language: String(input.language || "Bahasa Indonesia").slice(0, 80),
     notes: String(input.notes || "").trim().slice(0, 6000),
+    referenceImageDataUrl: validateReferenceImage(input.referenceImageDataUrl),
   };
 }
 
@@ -170,6 +174,44 @@ async function generateSegment(input, segment) {
   throw lastError;
 }
 
+async function analyzeReferenceImage(imageDataUrl) {
+  if (!imageDataUrl) return null;
+
+  const visionModel = String(process.env.VISION_OPENAI_MODEL || "").trim();
+  if (!visionModel) {
+    throw new AppError(
+      "Gambar referensi memerlukan VISION_OPENAI_MODEL di file .env.",
+      400,
+      "VISION_MODEL_NOT_CONFIGURED",
+    );
+  }
+
+  const payload = await requestCompletion({
+    ...credentials(),
+    model: visionModel,
+    body: {
+      messages: buildVisionMessages(imageDataUrl),
+      temperature: 0.15,
+      max_tokens: 500,
+    },
+  });
+  const profile = extractContent(payload)
+    .replace(/^```(?:text)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 1500);
+  if (profile.length < 20) {
+    throw new AppError("Model vision tidak menghasilkan deskripsi karakter yang dapat digunakan.", 502, "INVALID_VISION_RESPONSE");
+  }
+
+  return {
+    model: payload.model || visionModel,
+    profile,
+    usage: payload.usage || null,
+  };
+}
+
 function mergeUsage(current, usage) {
   if (!usage) return current;
   const result = { ...(current || {}) };
@@ -220,10 +262,20 @@ async function generateAdaptiveSegment(input, segment, depth = 0) {
 
 async function generate(body) {
   const input = validateGenerateInput(body.input || {});
+  let characterReference = null;
+  try {
+    characterReference = await analyzeReferenceImage(input.referenceImageDataUrl);
+  } catch (error) {
+    error.message = `Gambar referensi gagal dibaca: ${error.message}`;
+    throw error;
+  }
+  input.characterProfile = characterReference?.profile || "";
+  delete input.referenceImageDataUrl;
+
   const durations = planSegments(input.durationMinutes);
   const packages = [];
   const formatModes = [];
-  let usage = null;
+  let usage = mergeUsage(null, characterReference?.usage);
   let model = process.env.OPENAI_MODEL;
   let previousEnding = "";
 
@@ -259,6 +311,8 @@ async function generate(body) {
       segmentCount: packages.length,
       formatMode: [...new Set(formatModes)].join(" + "),
       usage,
+      visionModel: characterReference?.model || null,
+      characterProfile: characterReference?.profile || null,
     },
   };
 }
@@ -295,6 +349,7 @@ const server = createServer(async (req, res) => {
       return sendJson(res, 200, {
         baseUrl: process.env.OPENAI_BASE_URL || "",
         model: process.env.OPENAI_MODEL || "",
+        visionModel: process.env.VISION_OPENAI_MODEL || "",
         hasApiKey: Boolean(String(process.env.OPENAI_API_KEY || "").trim()),
         maxTokens: providerMaxTokens,
       });
