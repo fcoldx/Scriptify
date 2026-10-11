@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Scriptify — YouTube Narrative Studio</title>
+    <meta name="description" content="Susun naskah YouTube long-form dan prompt visual per scene." />
+    <link rel="stylesheet" href="/styles.css?v=3" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#top" aria-label="Scriptify beranda">
+          <span class="brand-mark" aria-hidden="true">S</span>
+          <span>Scriptify</span>
+        </a>
+        <p class="topbar-note">Long-form narrative studio</p>
+        <button class="connection-button" id="checkConnection" type="button">
+          <span class="status-light" id="statusLight" aria-hidden="true"></span>
+          <span id="connectionLabel">Cek koneksi</span>
+        </button>
+      </header>
+
+      <main id="top">
+        <section class="intro">
+          <div>
+            <p class="kicker">Dari ide menjadi alur visual</p>
+            <h1>Tulis naskah yang sudah siap <em>diproduksi.</em></h1>
+          </div>
+          <p class="intro-copy">Buat narasi YouTube long-form, pecah otomatis per scene, lalu dapatkan prompt gambar atau video yang sejalan dengan cerita.</p>
+        </section>
+
+        <div class="workspace">
+          <form class="composer" id="generatorForm">
+            <div class="section-heading">
+              <div>
+                <span class="step-index">01</span>
+                <h2>Arah cerita</h2>
+              </div>
+              <span class="required-note">* wajib</span>
+            </div>
+
+            <label class="field field-large">
+              <span>Topik atau ide utama *</span>
+              <textarea id="topic" name="topic" rows="4" maxlength="500" required placeholder="Contoh: Mengapa kenaikan suku bunga memengaruhi harga rumah dan keputusan keluarga muda?"></textarea>
+              <small><span id="topicCount">0</span>/500</small>
+            </label>
+
+            <div class="field-grid">
+              <label class="field">
+                <span>Jenis konten</span>
+                <select id="contentType" name="contentType">
+                  <option>Dokumenter</option>
+                  <option>Penjelasan finansial</option>
+                  <option>Sejarah</option>
+                  <option>Teknologi</option>
+                  <option>Edukasi</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Target durasi</span>
+                <select id="durationMinutes" name="durationMinutes">
+                  <option value="5">5 menit</option>
+                  <option value="10" selected>10 menit</option>
+                  <option value="15">15 menit</option>
+                  <option value="20">20 menit</option>
+                  <option value="30">30 menit</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Target penonton</span>
+                <input id="audience" name="audience" value="Penonton umum Indonesia" maxlength="160" />
+              </label>
+              <label class="field">
+                <span>Gaya narasi</span>
+                <select id="tone" name="tone">
+                  <option>Informatif dan sinematik</option>
+                  <option>Tenang dan reflektif</option>
+                  <option>Tegas dan analitis</option>
+                  <option>Santai dan mudah dipahami</option>
+                  <option>Investigatif dan penuh ketegangan</option>
+                </select>
+              </label>
+            </div>
+
+            <fieldset class="field visual-choice">
+              <legend>Prompt visual</legend>
+              <div class="segmented" role="radiogroup" aria-label="Jenis prompt visual">
+                <label><input type="radio" name="visualType" value="image" checked /><span>Gambar</span></label>
+                <label><input type="radio" name="visualType" value="video" /><span>Video</span></label>
+              </div>
+            </fieldset>
+
+            <details class="advanced">
+              <summary>Arahan tambahan</summary>
+              <label class="field">
+                <span>Referensi, sudut pandang, atau hal yang perlu dihindari</span>
+                <textarea id="notes" name="notes" rows="5" maxlength="6000" placeholder="Tempel konteks yang ingin dipakai model. Hindari memasukkan data rahasia."></textarea>
+              </label>
+            </details>
+
+            <div class="form-footer">
+              <p id="estimate">±1.400 kata narasi</p>
+              <button class="primary-button" id="generateButton" type="submit">
+                <span>Generate naskah</span>
+                <span aria-hidden="true">→</span>
+              </button>
+            </div>
+          </form>
+
+          <aside class="preview-rail" aria-labelledby="previewTitle">
+            <div class="preview-label">
+              <span class="step-index">02</span>
+              <h2 id="previewTitle">Output scene</h2>
+            </div>
+            <div id="resultArea" class="result-area" aria-live="polite">
+              <div class="empty-state">
+                <div class="empty-number">01</div>
+                <h3>Scene pertama akan muncul di sini.</h3>
+                <p>Isi arah cerita, lalu mulai generate menggunakan konfigurasi dari .env.</p>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="/app.js?v=3"></script>
+  </body>
+</html>
