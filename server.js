@@ -6,14 +6,18 @@ import {
   AppError,
   ProviderError,
   SCRIPT_SCHEMA,
+  buildEnhanceMessages,
   buildMessages,
   buildVisionMessages,
+  estimateSegmentMaxTokens,
   extractContent,
   isRetryableFormatError,
   mergePackages,
   normalizePackage,
   parseJsonContent,
   planSegments,
+  planVisualScenes,
+  planVisionTokenBudgets,
   requestCompletion,
   splitDuration,
   validateReferenceImage,
@@ -97,8 +101,8 @@ function validateGenerateInput(input) {
   if (topic.length > 500) throw new AppError("Topik maksimal 500 karakter.");
 
   const durationMinutes = Number(input.durationMinutes);
-  if (!Number.isFinite(durationMinutes) || durationMinutes < 3 || durationMinutes > 30) {
-    throw new AppError("Durasi harus antara 3 dan 30 menit.");
+  if (!Number.isFinite(durationMinutes) || durationMinutes < 1 || durationMinutes > 30) {
+    throw new AppError("Durasi harus antara 1 dan 30 menit.");
   }
 
   return {
@@ -107,7 +111,7 @@ function validateGenerateInput(input) {
     contentType: String(input.contentType || "Dokumenter").slice(0, 80),
     audience: String(input.audience || "Penonton umum").slice(0, 160),
     tone: String(input.tone || "Informatif dan sinematik").slice(0, 160),
-    visualType: input.visualType === "video" ? "video" : "image",
+    visualType: ["image", "video", "mixed"].includes(input.visualType) ? input.visualType : "image",
     language: String(input.language || "Bahasa Indonesia").slice(0, 80),
     notes: String(input.notes || "").trim().slice(0, 6000),
     referenceImageDataUrl: validateReferenceImage(input.referenceImageDataUrl),
@@ -116,6 +120,7 @@ function validateGenerateInput(input) {
 
 async function testProvider(body) {
   const startedAt = Date.now();
+  const draftModel = String(process.env.OPENAI_MODEL || "").trim();
   const payload = await requestCompletion({
     ...credentials(),
     timeoutMs: Math.min(providerTimeoutMs, 30000),
@@ -126,15 +131,52 @@ async function testProvider(body) {
     },
   });
   const reply = extractContent(payload);
-  return { ok: true, reply, latencyMs: Date.now() - startedAt, model: payload.model || process.env.OPENAI_MODEL };
+  const draftLatencyMs = Date.now() - startedAt;
+  const enhanceModel = String(process.env.ENHANCE_OPENAI_MODEL || "").trim();
+  let enhance = null;
+
+  if (enhanceModel) {
+    const enhanceStartedAt = Date.now();
+    const enhancePayload = await requestCompletion({
+      ...credentials(),
+      model: enhanceModel,
+      timeoutMs: Math.min(providerTimeoutMs, 30000),
+      body: {
+        messages: [{ role: "user", content: "Reply with exactly: OK" }],
+        max_tokens: 8,
+        temperature: 0,
+      },
+    });
+    enhance = {
+      model: enhancePayload.model || enhanceModel,
+      latencyMs: Date.now() - enhanceStartedAt,
+      reply: extractContent(enhancePayload),
+    };
+  }
+
+  return {
+    ok: true,
+    reply,
+    latencyMs: draftLatencyMs,
+    model: payload.model || draftModel,
+    enhanceModel: enhance?.model || null,
+    enhanceLatencyMs: enhance?.latencyMs || null,
+  };
 }
 
-async function generateSegment(input, segment) {
-  const messages = buildMessages(input, segment);
+async function requestStructuredPackage({
+  input,
+  messages,
+  model,
+  maxTokens,
+  scenePlan,
+  temperature,
+  expectedSceneCount = null,
+}) {
   const common = {
     messages,
-    temperature: 0.45,
-    max_tokens: providerMaxTokens,
+    temperature,
+    max_tokens: maxTokens,
   };
   const attempts = [
     {
@@ -154,16 +196,25 @@ async function generateSegment(input, segment) {
     try {
       const payload = await requestCompletion({
         ...credentials(),
+        model,
         body: { ...common, ...(attempt.response_format ? { response_format: attempt.response_format } : {}) },
       });
-      const result = normalizePackage(parseJsonContent(extractContent(payload)));
+      const result = normalizePackage(parseJsonContent(extractContent(payload)), {
+        visualType: input.visualType,
+        mixedVideoScenes: scenePlan.videoScenes,
+      });
+      if (Number.isInteger(expectedSceneCount) && result.scenes.length !== expectedSceneCount) {
+        throw new AppError(
+          `Model enhancement mengubah jumlah scene dari ${expectedSceneCount} menjadi ${result.scenes.length}.`,
+          502,
+          "INVALID_MODEL_SCHEMA",
+        );
+      }
       return {
         result,
-        meta: {
-          model: payload.model || process.env.OPENAI_MODEL,
-          formatMode: attempt.mode,
-          usage: payload.usage || null,
-        },
+        model: payload.model || model,
+        formatMode: attempt.mode,
+        usage: payload.usage || null,
       };
     } catch (error) {
       lastError = error;
@@ -172,6 +223,74 @@ async function generateSegment(input, segment) {
     }
   }
   throw lastError;
+}
+
+async function generateSegment(input, segment) {
+  const draftModel = String(process.env.OPENAI_MODEL || "").trim();
+  const enhanceModel = String(process.env.ENHANCE_OPENAI_MODEL || "").trim();
+  const scenePlan = planVisualScenes(segment.durationMinutes, input.visualType, segment.isFirst !== false);
+  const maxTokens = estimateSegmentMaxTokens(segment.durationMinutes, {
+    ceiling: providerMaxTokens,
+    hasCharacterProfile: Boolean(input.characterProfile),
+    visualType: input.visualType,
+    isFirst: segment.isFirst !== false,
+  });
+  const draft = await requestStructuredPackage({
+    input,
+    messages: buildMessages(input, segment),
+    model: draftModel,
+    maxTokens,
+    scenePlan,
+    temperature: 0.45,
+  });
+
+  if (!enhanceModel) {
+    return {
+      result: draft.result,
+      meta: {
+        model: draft.model,
+        enhanceModel: null,
+        formatMode: draft.formatMode,
+        usage: draft.usage,
+        maxTokens,
+      },
+    };
+  }
+
+  let enhanced;
+  try {
+    enhanced = await requestStructuredPackage({
+      input,
+      messages: buildEnhanceMessages(input, segment, draft.result),
+      model: enhanceModel,
+      maxTokens,
+      scenePlan,
+      temperature: 0.25,
+      expectedSceneCount: draft.result.scenes.length,
+    });
+  } catch (error) {
+    error.message = `Tahap enhancement gagal: ${error.message}`;
+    throw error;
+  }
+
+  enhanced.result.scenes = enhanced.result.scenes.map((scene, index) => ({
+    ...scene,
+    id: draft.result.scenes[index].id,
+    visualType: draft.result.scenes[index].visualType,
+    estimatedDurationSeconds: draft.result.scenes[index].estimatedDurationSeconds,
+  }));
+  enhanced.result.estimatedTotalSeconds = draft.result.estimatedTotalSeconds;
+
+  return {
+    result: enhanced.result,
+    meta: {
+      model: draft.model,
+      enhanceModel: enhanced.model,
+      formatMode: `${draft.formatMode} → ${enhanced.formatMode}`,
+      usage: mergeUsage(draft.usage, enhanced.usage),
+      maxTokens,
+    },
+  };
 }
 
 async function analyzeReferenceImage(imageDataUrl) {
@@ -186,30 +305,51 @@ async function analyzeReferenceImage(imageDataUrl) {
     );
   }
 
-  const payload = await requestCompletion({
-    ...credentials(),
-    model: visionModel,
-    body: {
-      messages: buildVisionMessages(imageDataUrl),
-      temperature: 0.15,
-      max_tokens: 500,
-    },
-  });
-  const profile = extractContent(payload)
-    .replace(/^```(?:text)?\s*/i, "")
-    .replace(/\s*```$/, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 1500);
-  if (profile.length < 20) {
-    throw new AppError("Model vision tidak menghasilkan deskripsi karakter yang dapat digunakan.", 502, "INVALID_VISION_RESPONSE");
+  const budgets = planVisionTokenBudgets(providerMaxTokens);
+  let usage = null;
+  for (let index = 0; index < budgets.length; index += 1) {
+    const maxTokens = budgets[index];
+    const payload = await requestCompletion({
+      ...credentials(),
+      model: visionModel,
+      body: {
+        messages: buildVisionMessages(imageDataUrl),
+        temperature: 0.15,
+        max_tokens: maxTokens,
+      },
+    });
+    usage = mergeUsage(usage, payload.usage);
+
+    try {
+      const profile = extractContent(payload)
+        .replace(/^```(?:text)?\s*/i, "")
+        .replace(/\s*```$/, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 1500);
+      if (profile.length < 20) {
+        throw new AppError("Model vision tidak menghasilkan deskripsi karakter yang dapat digunakan.", 502, "INVALID_VISION_RESPONSE");
+      }
+
+      return {
+        model: payload.model || visionModel,
+        profile,
+        usage,
+        maxTokens,
+      };
+    } catch (error) {
+      const canIncrease = error instanceof AppError
+        && error.code === "TRUNCATED_MODEL_RESPONSE"
+        && index < budgets.length - 1;
+      if (canIncrease) continue;
+      if (error instanceof AppError && error.code === "TRUNCATED_MODEL_RESPONSE") {
+        error.message = `Model vision masih memotong analisis gambar setelah batas output dinaikkan otomatis hingga ${maxTokens} token. Naikkan OPENAI_MAX_TOKENS atau gunakan model vision yang lebih efisien.`;
+      }
+      throw error;
+    }
   }
 
-  return {
-    model: payload.model || visionModel,
-    profile,
-    usage: payload.usage || null,
-  };
+  throw new AppError("Model vision tidak menghasilkan deskripsi karakter.", 502, "INVALID_VISION_RESPONSE");
 }
 
 function mergeUsage(current, usage) {
@@ -235,7 +375,12 @@ async function generateAdaptiveSegment(input, segment, depth = 0) {
       && segment.durationMinutes > 0.6
       && depth < 4;
 
-    if (!canSplit) throw error;
+    if (!canSplit) {
+      if (error instanceof AppError && error.code === "TRUNCATED_MODEL_RESPONSE") {
+        error.message = `Respons model tetap terpotong setelah budget token disesuaikan dengan durasi dan bagian dipecah otomatis. Batas OPENAI_MAX_TOKENS saat ini ${providerMaxTokens}.`;
+      }
+      throw error;
+    }
 
     const [firstDuration, secondDuration] = splitDuration(segment.durationMinutes);
     const parentLabel = segment.label || `${segment.index + 1} dari ${segment.total}`;
@@ -275,8 +420,10 @@ async function generate(body) {
   const durations = planSegments(input.durationMinutes);
   const packages = [];
   const formatModes = [];
+  const tokenBudgets = [];
   let usage = mergeUsage(null, characterReference?.usage);
   let model = process.env.OPENAI_MODEL;
+  let enhanceModel = null;
   let previousEnding = "";
 
   for (let index = 0; index < durations.length; index += 1) {
@@ -295,6 +442,8 @@ async function generate(body) {
         formatModes.push(generated.meta.formatMode);
         usage = mergeUsage(usage, generated.meta.usage);
         model = generated.meta.model || model;
+        enhanceModel = generated.meta.enhanceModel || enhanceModel;
+        tokenBudgets.push(generated.meta.maxTokens);
       }
       previousEnding = chunk.ending;
     } catch (error) {
@@ -308,11 +457,14 @@ async function generate(body) {
     result: mergePackages(packages),
     meta: {
       model,
+      enhanceModel,
       segmentCount: packages.length,
       formatMode: [...new Set(formatModes)].join(" + "),
       usage,
       visionModel: characterReference?.model || null,
       characterProfile: characterReference?.profile || null,
+      visionMaxTokens: characterReference?.maxTokens || null,
+      maxTokensPerSegment: tokenBudgets,
     },
   };
 }
@@ -349,6 +501,7 @@ const server = createServer(async (req, res) => {
       return sendJson(res, 200, {
         baseUrl: process.env.OPENAI_BASE_URL || "",
         model: process.env.OPENAI_MODEL || "",
+        enhanceModel: process.env.ENHANCE_OPENAI_MODEL || "",
         visionModel: process.env.VISION_OPENAI_MODEL || "",
         hasApiKey: Boolean(String(process.env.OPENAI_API_KEY || "").trim()),
         maxTokens: providerMaxTokens,

@@ -106,7 +106,7 @@ textarea::placeholder, input::placeholder { color: #66696d; }
 .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
 
 .visual-choice { border: 0; padding: 0; }
-.segmented { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 10px; padding: 4px; background: var(--panel); }
+.segmented { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 10px; padding: 4px; background: var(--panel); }
 .segmented label { position: relative; }
 .segmented input { position: absolute; opacity: 0; pointer-events: none; }
 .segmented span { display: grid; place-items: center; height: 38px; border-radius: 7px; color: var(--muted); cursor: pointer; }

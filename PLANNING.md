@@ -1,6 +1,8 @@
 # Scriptify — Rencana Produk dan Implementasi
 
-Status: usulan awal, belum implementasi. Tanggal: 11 Oktober 2026.
+Status: product brief; prototype lokal sudah tersedia. Tanggal pembaruan: 15 Oktober 2026.
+
+Rencana implementasi yang sudah dipecah menjadi langkah kerja tersedia di [`plan/README.md`](./plan/README.md). Dokumen ini tetap menjadi sumber konteks produk dan arsitektur tingkat tinggi.
 
 ## 1. Tujuan
 

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AppError, ProviderError, buildMessages, buildVisionMessages, chatCompletionsUrl, extractContent, isRetryableFormatError, mergePackages, normalizePackage, parseJsonContent, planSegments, requestCompletion, splitDuration, validateReferenceImage } from "../lib/provider.js";
+import { AppError, ProviderError, buildEnhanceMessages, buildMessages, buildVisionMessages, chatCompletionsUrl, estimateSegmentMaxTokens, extractContent, isRetryableFormatError, mergePackages, normalizePackage, parseJsonContent, planSegments, planVisualScenes, planVisionTokenBudgets, requestCompletion, splitDuration, validateReferenceImage, visualTiming } from "../lib/provider.js";
 
 test("menormalkan base URL menjadi endpoint chat completions", () => {
   assert.equal(chatCompletionsUrl("https://api.example.com/v1"), "https://api.example.com/v1/chat/completions");
@@ -55,6 +55,8 @@ test("memvalidasi gambar referensi dan membangun pesan vision", () => {
   );
 
   const messages = buildVisionMessages(image);
+  assert.match(messages[0].content, /visual consistency anchor/i);
+  assert.match(messages[0].content, /overlay UI/i);
   assert.equal(messages[1].content[1].type, "image_url");
   assert.equal(messages[1].content[1].image_url.url, image);
 });
@@ -74,6 +76,69 @@ test("membagi durasi panjang menjadi bagian maksimal empat menit", () => {
 test("membagi ulang bagian terpotong tanpa kehilangan durasi", () => {
   assert.deepEqual(splitDuration(3.33), [1.66, 1.67]);
   assert.deepEqual(splitDuration(1.25), [0.62, 0.63]);
+});
+
+test("menghitung budget token berdasarkan durasi dan kompleksitas visual", () => {
+  const oneMinute = estimateSegmentMaxTokens(1, { ceiling: 50000, visualType: "image" });
+  const fourMinutes = estimateSegmentMaxTokens(4, { ceiling: 50000, visualType: "image" });
+  const video = estimateSegmentMaxTokens(4, { ceiling: 50000, visualType: "video" });
+  const mixed = estimateSegmentMaxTokens(4, { ceiling: 50000, visualType: "mixed", isFirst: true });
+  const character = estimateSegmentMaxTokens(4, {
+    ceiling: 50000,
+    visualType: "image",
+    hasCharacterProfile: true,
+  });
+
+  assert.ok(oneMinute < fourMinutes);
+  assert.ok(video < fourMinutes);
+  assert.ok(video < mixed);
+  assert.ok(mixed < fourMinutes);
+  assert.ok(fourMinutes < character);
+  assert.equal(estimateSegmentMaxTokens(30, { ceiling: 4000, visualType: "video" }), 4000);
+});
+
+test("menggunakan durasi visual berbeda untuk gambar dan video", () => {
+  assert.deepEqual(visualTiming("image"), { minimumSeconds: 3, maximumSeconds: 4, targetSeconds: 3.5 });
+  assert.deepEqual(visualTiming("video"), { minimumSeconds: 8, maximumSeconds: 12, targetSeconds: 10 });
+
+  const raw = {
+    title: "Timing",
+    scenes: [{ title: "A", estimatedDurationSeconds: 20, narration: "Narasi.", visualPrompt: "Visual." }],
+  };
+  assert.equal(normalizePackage(raw, { visualType: "image" }).scenes[0].estimatedDurationSeconds, 4);
+  assert.equal(normalizePackage(raw, { visualType: "video" }).scenes[0].estimatedDurationSeconds, 12);
+});
+
+test("merencanakan video pembuka lalu gambar pada mode campuran", () => {
+  assert.deepEqual(planVisualScenes(1, "mixed", true), {
+    targetScenes: 14,
+    videoScenes: 2,
+    imageScenes: 12,
+  });
+  assert.deepEqual(planVisualScenes(1, "mixed", false), {
+    targetScenes: 18,
+    videoScenes: 0,
+    imageScenes: 18,
+  });
+
+  const raw = {
+    title: "Campuran",
+    scenes: [
+      { title: "Hook", estimatedDurationSeconds: 3, visualType: "image", narration: "Hook.", visualPrompt: "Hook visual." },
+      { title: "Lanjut", estimatedDurationSeconds: 10, visualType: "video", narration: "Lanjut.", visualPrompt: "Still visual." },
+    ],
+  };
+  const result = normalizePackage(raw, { visualType: "mixed", mixedVideoScenes: 1 });
+  assert.equal(result.scenes[0].visualType, "video");
+  assert.equal(result.scenes[0].estimatedDurationSeconds, 8);
+  assert.equal(result.scenes[1].visualType, "image");
+  assert.equal(result.scenes[1].estimatedDurationSeconds, 4);
+});
+
+test("menaikkan budget vision bertahap sampai ceiling", () => {
+  assert.deepEqual(planVisionTokenBudgets(12000), [800, 1600, 3200, 6400, 12000]);
+  assert.deepEqual(planVisionTokenBudgets(2500), [800, 1600, 2500]);
+  assert.deepEqual(planVisionTokenBudgets(500), [500]);
 });
 
 test("mempertahankan posisi alur ketika satu bagian dipecah adaptif", () => {
@@ -96,7 +161,52 @@ test("mempertahankan posisi alur ketika satu bagian dipecah adaptif", () => {
     label: "1 dari 1 · A",
   });
   assert.match(messages[0].content, /bagian pembuka/i);
+  assert.match(messages[0].content, /bahasa Indonesia sehari-hari/i);
+  assert.match(messages[0].content, /nggak, cuma, bikin, kok/i);
+  assert.match(messages[1].content, /Bahasa Indonesia percakapan sehari-hari/i);
+  assert.match(messages[0].content, /3–4 detik/);
+  assert.match(messages[0].content, /satu focal point/i);
+  assert.match(messages[0].content, /60–90 kata/i);
+  assert.match(messages[0].content, /lokasi, subjek, aksi utama, objek tujuan/i);
+  assert.match(messages[0].content, /antre membeli bensin di Bali/i);
+  assert.match(messages[0].content, /Antrean di jalan tanpa fasilitas pengisian tidak cukup/i);
+  assert.match(messages[1].content, /apakah lokasi spesifik terlihat/i);
   assert.match(messages[1].content, /1 dari 1 · A/);
+});
+
+test("memberi instruksi scene video 8–12 detik", () => {
+  const input = {
+    topic: "Inflasi",
+    durationMinutes: 3,
+    contentType: "Dokumenter",
+    audience: "Umum",
+    tone: "Informatif",
+    visualType: "video",
+    language: "Bahasa Indonesia",
+    notes: "",
+  };
+  const systemPrompt = buildMessages(input)[0].content;
+  assert.match(systemPrompt, /8–12 detik/);
+  assert.match(systemPrompt, /pergerakan kamera/i);
+  assert.match(systemPrompt, /80–120 kata/i);
+});
+
+test("memberi instruksi mode campuran video pembuka lalu gambar", () => {
+  const input = {
+    topic: "Inflasi",
+    durationMinutes: 1,
+    contentType: "Dokumenter",
+    audience: "Umum",
+    tone: "Informatif",
+    visualType: "mixed",
+    language: "Bahasa Indonesia",
+    notes: "",
+  };
+  const systemPrompt = buildMessages(input)[0].content;
+  assert.match(systemPrompt, /Mode campuran/i);
+  assert.match(systemPrompt, /video untuk 2 scene paling awal/i);
+  assert.match(systemPrompt, /Jangan kembali ke video/i);
+  assert.match(systemPrompt, /field visualType/i);
 });
 
 test("menyertakan identity anchor dalam arahan prompt visual", () => {
@@ -112,9 +222,45 @@ test("menyertakan identity anchor dalam arahan prompt visual", () => {
     characterProfile: "A young woman with a round face, short black bob hair, amber eyes, and a rust-orange jacket.",
   };
   const messages = buildMessages(input);
-  assert.match(messages[0].content, /tidak boleh mengubah wajah/i);
-  assert.match(messages[1].content, /CHARACTER IDENTITY ANCHOR/);
+  assert.match(messages[0].content, /bentuk kepala\/wajah/i);
+  assert.match(messages[0].content, /overlay aplikasi atau UI/i);
+  assert.match(messages[1].content, /CHARACTER VISUAL ANCHOR/);
   assert.match(messages[1].content, /rust-orange jacket/);
+});
+
+test("membangun tahap enhancement yang menjaga struktur draft", () => {
+  const input = {
+    topic: "Antrean bensin di Bali",
+    durationMinutes: 1,
+    contentType: "Dokumenter",
+    audience: "Umum",
+    tone: "Santai",
+    visualType: "mixed",
+    language: "Bahasa Indonesia",
+    notes: "",
+    characterProfile: "Minimalist round-headed stick figure with a blue scarf.",
+  };
+  const draft = {
+    title: "Bali dan BBM",
+    summary: "Draft",
+    scenes: [{
+      id: "SC-001",
+      title: "Antrean",
+      estimatedDurationSeconds: 10,
+      visualType: "video",
+      narration: "Orang lagi antre bensin di Bali.",
+      visualPrompt: "A queue on a road.",
+    }],
+  };
+  const messages = buildEnhanceMessages(input, { index: 0, total: 1, label: "1 dari 1" }, draft);
+
+  assert.match(messages[0].content, /editor enhancement/i);
+  assert.match(messages[0].content, /Pertahankan jumlah dan urutan scene, visualType, serta estimatedDurationSeconds/);
+  assert.match(messages[0].content, /lebih natural, sehari-hari/i);
+  assert.match(messages[0].content, /lokasi, subjek, aksi, objek tujuan\/penyebab/i);
+  assert.match(messages[1].content, /CHARACTER VISUAL ANCHOR/);
+  assert.match(messages[1].content, /Antrean bensin di Bali/);
+  assert.match(messages[1].content, /\"visualType\":\"video\"/);
 });
 
 test("menggabungkan paket dan menomori ulang scene", () => {

@@ -103,7 +103,7 @@ test("alur API test dan generate bekerja dengan provider kompatibel", async (con
     body: JSON.stringify({
       input: {
         topic: "Perubahan daya beli masyarakat",
-        durationMinutes: 5,
+        durationMinutes: 1,
         contentType: "Penjelasan finansial",
         audience: "Penonton umum",
         tone: "Informatif",
@@ -117,7 +117,7 @@ test("alur API test dan generate bekerja dengan provider kompatibel", async (con
   assert.equal(generateResponse.status, 200);
   assert.equal(generatePayload.meta.formatMode, "json_schema");
   assert.equal(generatePayload.result.scenes[0].id, "SC-001");
-  assert.equal(generatePayload.result.scenes[0].estimatedDurationSeconds, 11);
+  assert.equal(generatePayload.result.scenes[0].estimatedDurationSeconds, 4);
   assert.equal(requests[0].authorization, "Bearer test-secret");
   assert.equal(requests[1].body.response_format.type, "json_schema");
   assert.equal(requests[1].url, "/v1/chat/completions");

@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark" />
     <title>Scriptify — YouTube Narrative Studio</title>
     <meta name="description" content="Susun naskah YouTube long-form dan prompt visual per scene." />
-    <link rel="stylesheet" href="/styles.css?v=4" />
+    <link rel="stylesheet" href="/styles.css?v=6" />
   </head>
   <body>
     <div class="app-shell">
@@ -61,6 +61,7 @@
               <label class="field">
                 <span>Target durasi</span>
                 <select id="durationMinutes" name="durationMinutes">
+                  <option value="1">1 menit · test prompt</option>
                   <option value="5">5 menit</option>
                   <option value="10" selected>10 menit</option>
                   <option value="15">15 menit</option>
@@ -89,6 +90,7 @@
               <div class="segmented" role="radiogroup" aria-label="Jenis prompt visual">
                 <label><input type="radio" name="visualType" value="image" checked /><span>Gambar</span></label>
                 <label><input type="radio" name="visualType" value="video" /><span>Video</span></label>
+                <label><input type="radio" name="visualType" value="mixed" /><span>Campuran</span></label>
               </div>
             </fieldset>
 
@@ -96,7 +98,7 @@
               <div class="reference-copy">
                 <span class="reference-eyebrow">Opsional</span>
                 <h3 id="referenceTitle">Referensi karakter</h3>
-                <p>Model vision membaca ciri karakter dan mengulang identity anchor pada prompt visual agar tampilannya tetap konsisten.</p>
+                <p>Model vision membaca gaya ilustrasi dan ciri karakter, lalu mengulang visual anchor pada prompt agar tampilannya tetap konsisten.</p>
                 <p class="vision-status" id="visionStatus">Memeriksa VISION_OPENAI_MODEL…</p>
               </div>
               <div class="reference-control">
@@ -150,6 +152,6 @@
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=4"></script>
+    <script type="module" src="/app.js?v=7"></script>
   </body>
 </html>

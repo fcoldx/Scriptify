@@ -4,6 +4,7 @@ const state = {
   result: null,
   configReady: false,
   model: "",
+  enhanceModel: "",
   visionModel: "",
   referencePreviewUrl: "",
 };
@@ -39,14 +40,18 @@ async function loadServerConfig() {
     const config = await response.json();
     state.configReady = Boolean(config.baseUrl && config.model && config.hasApiKey);
     state.model = config.model || "";
+    state.enhanceModel = config.enhanceModel || "";
     state.visionModel = config.visionModel || "";
-    elements.connectionLabel.textContent = state.configReady ? `Cek koneksi · ${state.model}` : "Cek konfigurasi .env";
+    elements.connectionLabel.textContent = state.configReady
+      ? `Cek koneksi · ${state.model}${state.enhanceModel ? ` + ${state.enhanceModel}` : ""}`
+      : "Cek konfigurasi .env";
     elements.visionStatus.textContent = state.visionModel
       ? `Vision terkonfigurasi · ${state.visionModel}`
       : "Tambahkan VISION_OPENAI_MODEL di .env untuk memakai gambar.";
     elements.visionStatus.classList.toggle("ready", Boolean(state.visionModel));
   } catch {
     state.configReady = false;
+    state.enhanceModel = "";
     state.visionModel = "";
     elements.connectionLabel.textContent = "Cek konfigurasi .env";
     elements.visionStatus.textContent = "Konfigurasi vision belum dapat dibaca.";
@@ -71,7 +76,9 @@ elements.checkConnection.addEventListener("click", async () => {
   try {
     const result = await api("/api/test", {});
     elements.statusLight.classList.add("connected");
-    elements.connectionLabel.textContent = `${result.model} · ${result.latencyMs} ms`;
+    elements.connectionLabel.textContent = result.enhanceModel
+      ? `${result.model} ${result.latencyMs} ms · ${result.enhanceModel} ${result.enhanceLatencyMs} ms`
+      : `${result.model} · ${result.latencyMs} ms`;
     showToast("Koneksi provider berhasil.");
   } catch (error) {
     elements.statusLight.classList.add("failed");
@@ -208,7 +215,13 @@ function durationLabel(seconds) {
   return `${minutes} menit${remainder ? ` ${remainder} detik` : ""}`;
 }
 
-function sceneText(scene, visualType) {
+function sceneVisualType(scene, fallback = "image") {
+  if (scene.visualType === "video" || scene.visualType === "image") return scene.visualType;
+  return fallback === "video" ? "video" : "image";
+}
+
+function sceneText(scene, fallbackVisualType) {
+  const visualType = sceneVisualType(scene, fallbackVisualType);
   const visualLabel = visualType === "video" ? "Prompt video" : "Prompt gambar";
   return `Scene: ${scene.id} — ${scene.title} (estimasi ${durationLabel(scene.estimatedDurationSeconds)})\n\nNarasi: "${scene.narration}"\n\n${visualLabel}: "${scene.visualPrompt}"`;
 }
@@ -236,19 +249,20 @@ function renderResult(response) {
   result.scenes.forEach((scene) => scenes.append(createScene(scene, visualType)));
 
   const characterProfile = meta.characterProfile
-    ? createDefinition("Character identity anchor", meta.characterProfile, "identity-anchor")
+    ? createDefinition("Visual consistency anchor", meta.characterProfile, "identity-anchor")
     : null;
 
   const footer = document.createElement("p");
   footer.className = "result-meta";
   footer.style.marginTop = "18px";
-  footer.textContent = `${meta.model} · ${meta.formatMode}${meta.segmentCount > 1 ? ` · ${meta.segmentCount} BAGIAN` : ""}${meta.visionModel ? ` · VISION ${meta.visionModel}` : ""}`;
+  footer.textContent = `${meta.model}${meta.enhanceModel ? ` · ENHANCE ${meta.enhanceModel}` : ""} · ${meta.formatMode}${meta.segmentCount > 1 ? ` · ${meta.segmentCount} BAGIAN` : ""}${meta.visionModel ? ` · VISION ${meta.visionModel}` : ""}`;
   elements.resultArea.append(head);
   if (characterProfile) elements.resultArea.append(characterProfile);
   elements.resultArea.append(scenes, footer);
 }
 
-function createScene(scene, visualType) {
+function createScene(scene, fallbackVisualType) {
+  const visualType = sceneVisualType(scene, fallbackVisualType);
   const article = document.createElement("article");
   article.className = "scene";
 
@@ -257,7 +271,7 @@ function createScene(scene, visualType) {
   const h3 = document.createElement("h3");
   h3.textContent = `${scene.id} — ${scene.title}`;
   const duration = document.createElement("span");
-  duration.textContent = `estimasi ${durationLabel(scene.estimatedDurationSeconds)}`;
+  duration.textContent = `${visualType === "video" ? "VIDEO" : "GAMBAR"} · estimasi ${durationLabel(scene.estimatedDurationSeconds)}`;
   heading.append(h3, duration);
 
   const narration = createDefinition("Narasi", scene.narration, "scene-block");
