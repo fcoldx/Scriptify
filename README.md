@@ -48,7 +48,7 @@ Buka `http://localhost:3000`. Seluruh konfigurasi provider dibaca dari `.env`; t
 - Prompt visual memakai urutan terstruktur: gaya, karakter, aksi/ekspresi, lokasi, objek cerita, komposisi/kamera, pencahayaan, palet, dan render constraints; tulisan, logo, watermark, serta overlay UI dilarang.
 - Preset 1 menit tersedia untuk menguji kualitas prompt visual dengan biaya dan waktu lebih rendah sebelum membuat naskah panjang.
 - Structured Outputs dengan fallback ke JSON mode dan prompt JSON untuk provider yang lebih sederhana.
-- Tombol salin untuk narasi, prompt, atau seluruh scene.
+- Tombol salin untuk narasi per scene, prompt, seluruh scene, atau semua narasi sebagai satu teks berurutan.
 - Validasi respons model, timeout, batas request, dan perlindungan dasar endpoint kustom.
 
 ## Catatan keamanan

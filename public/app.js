@@ -226,6 +226,13 @@ function sceneText(scene, fallbackVisualType) {
   return `Scene: ${scene.id} — ${scene.title} (estimasi ${durationLabel(scene.estimatedDurationSeconds)})\n\nNarasi: "${scene.narration}"\n\n${visualLabel}: "${scene.visualPrompt}"`;
 }
 
+function allNarrationText(scenes) {
+  return scenes
+    .map((scene) => String(scene.narration || "").trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 function renderResult(response) {
   const { result, meta } = response;
   const visualType = elements.generatorForm.elements.visualType.value;
@@ -242,7 +249,12 @@ function renderResult(response) {
   const metaBox = document.createElement("div");
   metaBox.className = "result-meta";
   metaBox.textContent = `${result.scenes.length} SCENE · ${durationLabel(result.estimatedTotalSeconds).toUpperCase()}`;
-  head.append(intro, metaBox);
+  const headActions = document.createElement("div");
+  headActions.className = "result-head-actions";
+  const copyAllNarration = copyButton("Salin semua narasi", allNarrationText(result.scenes));
+  copyAllNarration.classList.add("copy-all-button");
+  headActions.append(metaBox, copyAllNarration);
+  head.append(intro, headActions);
 
   const scenes = document.createElement("div");
   scenes.className = "scenes";
