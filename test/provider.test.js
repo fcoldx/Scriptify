@@ -181,8 +181,13 @@ test("mempertahankan posisi alur ketika satu bagian dipecah adaptif", () => {
   assert.match(messages[0].content, /Variasikan ritme secara alami/i);
   assert.match(messages[0].content, /Pernah nggak sih, Bayangkan, Coba bayangin/i);
   assert.match(messages[0].content, /Hindari ciri tulisan AI/i);
+  assert.match(messages[0].content, /seluruh field narration akan digabung menjadi satu teks/i);
+  assert.match(messages[0].content, /Jangan memulai dua scene berdekatan/i);
+  assert.match(messages[0].content, /siapa yang melakukan apa/i);
+  assert.match(messages[0].content, /Jangan menjelaskan faktor yang sama dua kali/i);
+  assert.match(messages[0].content, /eksportir pasti untung/i);
   assert.match(messages[1].content, /Bahasa Indonesia percakapan sehari-hari/i);
-  assert.match(messages[1].content, /silent read-aloud pass/i);
+  assert.match(messages[1].content, /silent read-aloud pass pada gabungan semua field narration/i);
   assert.match(messages[0].content, /3–4 detik/);
   assert.match(messages[0].content, /satu focal point/i);
   assert.match(messages[0].content, /60–90 kata/i);
@@ -277,8 +282,12 @@ test("membangun tahap enhancement yang menjaga struktur draft", () => {
   assert.match(messages[0].content, /Pertahankan jumlah dan urutan scene, visualType, serta estimatedDurationSeconds/);
   assert.match(messages[0].content, /natural, sehari-hari/i);
   assert.match(messages[0].content, /humanization pass/i);
+  assert.match(messages[0].content, /edit sebagai satu naskah kontinu/i);
+  assert.match(messages[0].content, /Periksa kata pertama setiap scene/i);
+  assert.match(messages[0].content, /rantainya tidak putus/i);
+  assert.match(messages[0].content, /Lunakkan generalisasi/i);
   assert.match(messages[0].content, /Jangan sengaja membuat typo/i);
-  assert.match(messages[1].content, /voice actor manusia/i);
+  assert.match(messages[1].content, /tombol Salin semua narasi/i);
   assert.match(messages[0].content, /lokasi, subjek, aksi, objek tujuan\/penyebab/i);
   assert.match(messages[1].content, /CHARACTER VISUAL ANCHOR/);
   assert.match(messages[1].content, /Antrean bensin di Bali/);

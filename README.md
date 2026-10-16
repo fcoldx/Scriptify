@@ -39,7 +39,7 @@ Buka `http://localhost:3000`. Seluruh konfigurasi provider dibaca dari `.env`; t
 - Tes koneksi langsung ke provider OpenAI-compatible.
 - Generate naskah dari topik, durasi, audiens, gaya narasi, dan arahan tambahan.
 - Model draft dan model enhancement dapat dipilih terpisah melalui `.env`.
-- Narasi memakai Bahasa Indonesia percakapan sehari-hari dengan humanization pass: ritme kalimat bervariasi, transisi berbasis gagasan, mudah dibacakan, menghindari pola tulisan AI, dan tetap menjaga ketepatan istilah.
+- Narasi memakai Bahasa Indonesia percakapan sehari-hari dengan humanization pass: ritme kalimat bervariasi, transisi berbasis gagasan, pemeriksaan alur gabungan antarscene, mekanisme sebab-akibat yang lengkap, generalisasi yang diberi konteks, dan tetap menjaga ketepatan istilah.
 - Gambar referensi JPEG, PNG, atau WebP hingga 5 MB dianalisis oleh `VISION_OPENAI_MODEL` menjadi identity anchor agar ciri karakter konsisten di setiap prompt visual.
 - Generasi long-form dibagi otomatis menjadi bagian maksimal sekitar empat menit. Jika suatu bagian masih mencapai batas output model, hanya bagian itu yang dipecah lagi dan dicoba ulang; seluruh scene kemudian digabung dan dinomori ulang.
 - Output per scene: judul, estimasi durasi, narasi, dan prompt gambar/video.
