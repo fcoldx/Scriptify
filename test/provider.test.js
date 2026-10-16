@@ -177,7 +177,12 @@ test("mempertahankan posisi alur ketika satu bagian dipecah adaptif", () => {
   assert.match(messages[0].content, /bagian pembuka/i);
   assert.match(messages[0].content, /bahasa Indonesia sehari-hari/i);
   assert.match(messages[0].content, /nggak, cuma, bikin, kok/i);
+  assert.match(messages[0].content, /terasa ditulis manusia, bukan dirakit dari template/i);
+  assert.match(messages[0].content, /Variasikan ritme secara alami/i);
+  assert.match(messages[0].content, /Pernah nggak sih, Bayangkan, Coba bayangin/i);
+  assert.match(messages[0].content, /Hindari ciri tulisan AI/i);
   assert.match(messages[1].content, /Bahasa Indonesia percakapan sehari-hari/i);
+  assert.match(messages[1].content, /silent read-aloud pass/i);
   assert.match(messages[0].content, /3–4 detik/);
   assert.match(messages[0].content, /satu focal point/i);
   assert.match(messages[0].content, /60–90 kata/i);
@@ -270,7 +275,10 @@ test("membangun tahap enhancement yang menjaga struktur draft", () => {
 
   assert.match(messages[0].content, /editor enhancement/i);
   assert.match(messages[0].content, /Pertahankan jumlah dan urutan scene, visualType, serta estimatedDurationSeconds/);
-  assert.match(messages[0].content, /lebih natural, sehari-hari/i);
+  assert.match(messages[0].content, /natural, sehari-hari/i);
+  assert.match(messages[0].content, /humanization pass/i);
+  assert.match(messages[0].content, /Jangan sengaja membuat typo/i);
+  assert.match(messages[1].content, /voice actor manusia/i);
   assert.match(messages[0].content, /lokasi, subjek, aksi, objek tujuan\/penyebab/i);
   assert.match(messages[1].content, /CHARACTER VISUAL ANCHOR/);
   assert.match(messages[1].content, /Antrean bensin di Bali/);
