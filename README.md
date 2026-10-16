@@ -20,7 +20,9 @@ OPENAI_MAX_TOKENS=12000
 
 `OPENAI_TIMEOUT_MS` memakai milidetik. Nilai default 600000 memberi waktu hingga 10 menit untuk generasi long-form; tes koneksi tetap dibatasi 30 detik.
 
-`OPENAI_MAX_TOKENS` adalah batas maksimum, bukan jumlah token yang selalu diminta. Scriptify menghitung budget aktual setiap bagian berdasarkan target durasi, jumlah scene, jenis prompt visual, dan penggunaan character identity anchor. Analisis gambar juga menaikkan budget bertahap hanya jika model vision memotong respons.
+`OPENAI_MAX_TOKENS` adalah batas maksimum, bukan jumlah token yang selalu diminta. Scriptify menghitung budget aktual setiap bagian berdasarkan target durasi, jumlah scene, jenis prompt visual, dan penggunaan character identity anchor. Jika draft atau enhancement terpotong, budget dinaikkan bertahap sampai batas ini sebelum bagian dipecah otomatis. Analisis gambar memakai strategi bertahap yang sama.
+
+Timeout gateway provider (`408`, `504`, atau `524`) juga memicu pemecahan bagian otomatis. Halaman error HTML dari proxy atau CDN disaring agar UI hanya menampilkan penyebab dan langkah lanjut yang relevan.
 
 `OPENAI_MODEL` membuat draft awal naskah sekaligus prompt visual. `ENHANCE_OPENAI_MODEL` menjalankan tahap kedua untuk memperhalus bahasa narasi dan memperkuat kecocokan prompt visual terhadap isi scene. Tahap enhancement mempertahankan urutan, jumlah scene, tipe visual, dan durasi dari draft. Kosongkan `ENHANCE_OPENAI_MODEL` jika ingin memakai hasil draft tanpa tahap kedua.
 

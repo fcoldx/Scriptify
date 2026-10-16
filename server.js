@@ -11,10 +11,12 @@ import {
   buildVisionMessages,
   estimateSegmentMaxTokens,
   extractContent,
+  isAdaptiveSplitError,
   isRetryableFormatError,
   mergePackages,
   normalizePackage,
   parseJsonContent,
+  planGenerationTokenBudgets,
   planSegments,
   planVisualScenes,
   planVisionTokenBudgets,
@@ -225,6 +227,31 @@ async function requestStructuredPackage({
   throw lastError;
 }
 
+async function requestStageWithAdaptiveTokens(options) {
+  const budgets = planGenerationTokenBudgets(options.maxTokens, providerMaxTokens);
+  let lastError;
+
+  for (let index = 0; index < budgets.length; index += 1) {
+    const maxTokens = budgets[index];
+    try {
+      const generated = await requestStructuredPackage({ ...options, maxTokens });
+      return { ...generated, maxTokens };
+    } catch (error) {
+      lastError = error;
+      const canIncrease = error instanceof AppError
+        && error.code === "TRUNCATED_MODEL_RESPONSE"
+        && index < budgets.length - 1;
+      if (canIncrease) continue;
+      if (error instanceof AppError && error.code === "TRUNCATED_MODEL_RESPONSE") {
+        error.maxTokens = maxTokens;
+      }
+      throw error;
+    }
+  }
+
+  throw lastError;
+}
+
 async function generateSegment(input, segment) {
   const draftModel = String(process.env.OPENAI_MODEL || "").trim();
   const enhanceModel = String(process.env.ENHANCE_OPENAI_MODEL || "").trim();
@@ -235,14 +262,21 @@ async function generateSegment(input, segment) {
     visualType: input.visualType,
     isFirst: segment.isFirst !== false,
   });
-  const draft = await requestStructuredPackage({
-    input,
-    messages: buildMessages(input, segment),
-    model: draftModel,
-    maxTokens,
-    scenePlan,
-    temperature: 0.45,
-  });
+  let draft;
+  try {
+    draft = await requestStageWithAdaptiveTokens({
+      input,
+      messages: buildMessages(input, segment),
+      model: draftModel,
+      maxTokens,
+      scenePlan,
+      temperature: 0.45,
+    });
+  } catch (error) {
+    error.stage = "draft";
+    error.message = `Tahap draft gagal: ${error.message}`;
+    throw error;
+  }
 
   if (!enhanceModel) {
     return {
@@ -252,14 +286,14 @@ async function generateSegment(input, segment) {
         enhanceModel: null,
         formatMode: draft.formatMode,
         usage: draft.usage,
-        maxTokens,
+        maxTokens: draft.maxTokens,
       },
     };
   }
 
   let enhanced;
   try {
-    enhanced = await requestStructuredPackage({
+    enhanced = await requestStageWithAdaptiveTokens({
       input,
       messages: buildEnhanceMessages(input, segment, draft.result),
       model: enhanceModel,
@@ -269,6 +303,7 @@ async function generateSegment(input, segment) {
       expectedSceneCount: draft.result.scenes.length,
     });
   } catch (error) {
+    error.stage = "enhancement";
     error.message = `Tahap enhancement gagal: ${error.message}`;
     throw error;
   }
@@ -288,7 +323,9 @@ async function generateSegment(input, segment) {
       enhanceModel: enhanced.model,
       formatMode: `${draft.formatMode} → ${enhanced.formatMode}`,
       usage: mergeUsage(draft.usage, enhanced.usage),
-      maxTokens,
+      maxTokens: Math.max(draft.maxTokens, enhanced.maxTokens),
+      draftMaxTokens: draft.maxTokens,
+      enhanceMaxTokens: enhanced.maxTokens,
     },
   };
 }
@@ -370,14 +407,18 @@ async function generateAdaptiveSegment(input, segment, depth = 0) {
     const generated = await generateSegment(input, segment);
     return { generated: [generated], ending: resultEnding(generated.result) };
   } catch (error) {
-    const canSplit = error instanceof AppError
-      && error.code === "TRUNCATED_MODEL_RESPONSE"
-      && segment.durationMinutes > 0.6
-      && depth < 4;
+    const canSplit = isAdaptiveSplitError(error)
+      && segment.durationMinutes >= 0.48
+      && depth < 6;
 
     if (!canSplit) {
       if (error instanceof AppError && error.code === "TRUNCATED_MODEL_RESPONSE") {
-        error.message = `Respons model tetap terpotong setelah budget token disesuaikan dengan durasi dan bagian dipecah otomatis. Batas OPENAI_MAX_TOKENS saat ini ${providerMaxTokens}.`;
+        const stage = error.stage === "enhancement" ? "enhancement" : "draft";
+        const attemptedTokens = Number(error.maxTokens) || providerMaxTokens;
+        error.message = `Tahap ${stage} tetap terpotong setelah budget dinaikkan otomatis hingga ${attemptedTokens} token dan bagian dipecah sampai sekitar ${Math.round(segment.durationMinutes * 60)} detik. Batas OPENAI_MAX_TOKENS saat ini ${providerMaxTokens}.`;
+      } else if (error instanceof ProviderError && [408, 504, 524].includes(error.status)) {
+        const stage = error.stage === "enhancement" ? "enhancement" : "draft";
+        error.message = `Tahap ${stage} masih melewati batas waktu provider pada bagian sekitar ${Math.round(segment.durationMinutes * 60)} detik (HTTP ${error.status}). Coba lagi atau gunakan model/provider yang lebih cepat.`;
       }
       throw error;
     }

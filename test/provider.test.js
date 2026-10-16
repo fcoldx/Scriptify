@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AppError, ProviderError, buildEnhanceMessages, buildMessages, buildVisionMessages, chatCompletionsUrl, estimateSegmentMaxTokens, extractContent, isRetryableFormatError, mergePackages, normalizePackage, parseJsonContent, planSegments, planVisualScenes, planVisionTokenBudgets, requestCompletion, splitDuration, validateReferenceImage, visualTiming } from "../lib/provider.js";
+import { AppError, ProviderError, buildEnhanceMessages, buildMessages, buildVisionMessages, chatCompletionsUrl, estimateSegmentMaxTokens, extractContent, isAdaptiveSplitError, isRetryableFormatError, mergePackages, normalizePackage, parseJsonContent, planGenerationTokenBudgets, planSegments, planVisualScenes, planVisionTokenBudgets, requestCompletion, splitDuration, validateReferenceImage, visualTiming } from "../lib/provider.js";
 
 test("menormalkan base URL menjadi endpoint chat completions", () => {
   assert.equal(chatCompletionsUrl("https://api.example.com/v1"), "https://api.example.com/v1/chat/completions");
@@ -64,6 +64,13 @@ test("memvalidasi gambar referensi dan membangun pesan vision", () => {
 test("mengizinkan fallback ketika format model tidak valid", () => {
   const error = new AppError("bad json", 502, "INVALID_MODEL_JSON");
   assert.equal(isRetryableFormatError(error), true);
+});
+
+test("memecah bagian pada truncation dan timeout provider", () => {
+  assert.equal(isAdaptiveSplitError(new AppError("cut", 502, "TRUNCATED_MODEL_RESPONSE")), true);
+  assert.equal(isAdaptiveSplitError(new ProviderError("timeout", 524)), true);
+  assert.equal(isAdaptiveSplitError(new ProviderError("gateway timeout", 504)), true);
+  assert.equal(isAdaptiveSplitError(new ProviderError("unavailable", 503)), false);
 });
 
 test("membagi durasi panjang menjadi bagian maksimal empat menit", () => {
@@ -139,6 +146,13 @@ test("menaikkan budget vision bertahap sampai ceiling", () => {
   assert.deepEqual(planVisionTokenBudgets(12000), [800, 1600, 3200, 6400, 12000]);
   assert.deepEqual(planVisionTokenBudgets(2500), [800, 1600, 2500]);
   assert.deepEqual(planVisionTokenBudgets(500), [500]);
+});
+
+test("menaikkan budget generasi bertahap sebelum memecah bagian", () => {
+  assert.deepEqual(planGenerationTokenBudgets(4000, 8192), [4000, 6000, 8192]);
+  assert.deepEqual(planGenerationTokenBudgets(6000, 8192), [6000, 8192]);
+  assert.deepEqual(planGenerationTokenBudgets(8192, 8192), [8192]);
+  assert.deepEqual(planGenerationTokenBudgets(12000, 8192), [8192]);
 });
 
 test("mempertahankan posisi alur ketika satu bagian dipecah adaptif", () => {
@@ -311,5 +325,27 @@ test("mengubah kegagalan jaringan menjadi error provider yang jelas", async (con
       body: { messages: [] },
     }),
     (error) => error instanceof ProviderError && error.status === 502 && /izin mengakses jaringan/.test(error.message),
+  );
+});
+
+test("menyaring halaman HTML dari error timeout provider", async (context) => {
+  const originalFetch = globalThis.fetch;
+  context.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = async () => new Response(
+    "<!DOCTYPE html><html><head><title>524: A timeout occurred</title></head><body>Cloudflare</body></html>",
+    { status: 524, headers: { "Content-Type": "text/html" } },
+  );
+
+  await assert.rejects(
+    requestCompletion({
+      baseUrl: "https://api.example.com/v1",
+      apiKey: "test-key",
+      model: "test-model",
+      body: { messages: [] },
+    }),
+    (error) => error instanceof ProviderError
+      && error.status === 524
+      && error.message === "Provider melewati batas waktu gateway (HTTP 524)."
+      && !error.message.includes("<!DOCTYPE"),
   );
 });
